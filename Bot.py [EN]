@@ -1,0 +1,147 @@
+import discord
+import random
+import asyncio
+from datetime import datetime, timedelta
+import pytz
+
+# Replace with the IDs of the channels
+SOURCE_CHANNEL_ID = Insert_here  # Channel from which users will be moved
+TARGET_CHANNEL_ID = Insert_here  # Channel to move users to
+CLEANUP_CHANNEL_ID = Insert_here  # Channel to delete messages every day at 3am
+
+# Replace with the IDs of the roles representing admins and moderators
+ADMIN_ROLE_ID = Insert_here
+MOD_ROLE_ID = Insert_here
+
+# Bot's token
+TOKEN = 'Insert_here'
+
+# Set time zone Berlin
+BERLIN_TIMEZONE = pytz.timezone('Europe/Berlin')
+
+intents = discord.Intents.default()
+intents.members = True  # Necessary to get member information
+
+client = discord.Client(intents=intents)
+
+async def clean_channel():
+    channel = client.get_channel(CLEANUP_CHANNEL_ID)
+    try:
+        # Get the last 100 messages
+        messages = await channel.history(limit=100).flatten()
+
+        # Check for new messages
+        if messages:
+            # Delete all messages
+            await channel.purge(limit=None)
+
+            # Determine the current time and date in Berlin
+            berlin_time = datetime.now(BERLIN_TIMEZONE)
+            formatted_datetime = berlin_time.strftime("%d.%m.%Y um %H:%M:%S")
+
+            # Send a message with date and time
+            await channel.send(f"Channel was cleaned up on {formatted_datetime}!")
+        else:
+            print("No messages found to delete.")
+
+    except discord.errors.Forbidden:
+        print("No permission to delete messages.")
+    except Exception as e:
+        print(f"An error has occurred: {e}")
+
+async def clean_channel_at_specific_time(hour, minute):
+    while True:
+        now = datetime.now(BERLIN_TIMEZONE)
+        target_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+        # If the current time is already above the target time,
+        # the target time is postponed to the next day
+        if now > target_time:
+            target_time += timedelta(days=1)
+
+        # Wait until the target time is reached
+        await asyncio.sleep((target_time - now).total_seconds())
+
+        # Call the actual cleaning function
+        await clean_channel()
+
+        # Wait a second before looping again (optional)
+        await asyncio.sleep(1)
+
+async def move_members(ctx):
+    source_channel = client.get_channel(SOURCE_CHANNEL_ID)
+    target_channel = client.get_channel(TARGET_CHANNEL_ID)
+
+    if not source_channel or not target_channel:
+        await ctx.send("One of the channels was not found.")
+        return
+
+    members = source_channel.members
+    for member in members:
+        try:
+            await member.move_to(target_channel)
+            await ctx.send(f"User {member.display_name} has been moved.")
+        except discord.Forbidden:
+            await ctx.send(f"No permission to move {member.display_name}.")
+        except Exception as e:
+            await ctx.send(f"Error moving {member.display_name}: {e}")
+
+@client.event
+async def on_message(message):
+    if message.author == client.user:
+        return
+
+    # You can add additional commands here
+    if message.content.startswith('!ping'):
+        await message.channel.send('Pong!')
+
+    elif message.content.startswith('!würfel'):
+        await message.channel.send(f'Du hast eine {random.randint(1, 6)} gewürfelt!')
+
+    elif message.content.startswith('!hilfe'):
+        await message.channel.send(
+            "Verfügbare Befehle:\n!ping: Ping-Antwort\n!würfel: Würfelt einen 6-seitigen Würfel\n!hilfe: Zeigt diese Hilfe an\n!V: Die Aktuelle Version vom Bot")
+
+    elif message.content.startswith('!essyou'):
+        await message.channel.send('EssYou ist jetzt Live https://www.tiktok.com/@essyou_tv/live',
+                                   file=discord.File('Essyou.jpg'))
+
+    elif message.content.startswith('!bärli'):
+        await message.channel.send('Bärli ist jetzt Live https://www.tiktok.com/@bearli_official/live',
+                                   file=discord.File('Bärli.jpg'))
+
+    elif message.content.startswith('!leon'):
+        await message.channel.send('Leon ist jetzt Live https://www.tiktok.com/@alphagames2020/live',
+                                   file=discord.File('Leon.jpg'))
+
+    elif message.content.startswith('!leon2'):
+        await message.channel.send('Leon ist jehzt Live auf Twicht https://www.twitch.tv/alphagames_2020',
+                                   file=discord.File('Alpha_tv.jpg'))
+
+    elif message.content.startswith('!V'):
+        await message.channel.send('I'm running version V1.06.16'
+                                   '\n**--What's new?--**'
+                                   '\nNew command added [!move] Admins & Mods only'
+                                   '\nImprovement to the structure of the bot'
+                                   '\n**--More information--**'
+                                   '\n**The automatic restart added**'
+                                   '\nBot starts every day at 2:30 a.m. If an update comes, you will be informed'
+                                   '\nAll important information at https://alphagames.gitbook.io/alphabot',
+                                   file=discord.File('AlphaBot_Update.jpg'))
+
+    # The command to move users
+    elif message.content.startswith('!move'):
+        user_roles = [role.id for role in message.author.roles]
+        if ADMIN_ROLE_ID in user_roles or MOD_ROLE_ID in user_roles:
+            await move_members(message)
+        else:
+            await message.channel.send("You do not have the required permissions to run this command.")
+
+@client.event
+async def on_ready():
+    print(f'Eingeloggt als {client.user}')
+    # Starte den Reinigungsprozess täglich um 3 Uhr morgens
+    asyncio.create_task(clean_channel_at_specific_time(2, 30))
+
+# Starte den Bot
+client.run(TOKEN)
